@@ -1,25 +1,157 @@
 # repkg
 
-`repkg.exe` is the standalone Sunrise package compiler for the version-38 Windows Tiger format.
-It replaces the Python `sunrise-pkg` frontend and the separate `sunrise_pkg_extract.exe` helper.
+`repkg` is a standalone C++ toolchain for unpacking, inspecting, editing, and rebuilding the
+version-38 Windows Tiger packages used by Sunrise.
 
-`depkg.exe` is the matching unpacker. It turns a package into a complete editable project that can
-be passed straight back to `repkg.exe`.
+The project provides two command-line programs:
 
-Copy the matching `oo2core_3_win64.dll` beside `repkg.exe`. That is the only adjacent runtime file:
-the verified package keys and Sunrise header profile are compiled into the executable.
+- **`depkg.exe`** converts a `.pkg` file into a self-contained editable project.
+- **`repkg.exe`** compiles an editable project or authored manifest back into a `.pkg` file.
 
-This repository is the standalone extraction of the package tooling originally developed in
-[Sunrise](https://github.com/TotalTaxAmount/Sunrise). It contains no game packages, extracted game
-assets, game executable, or proprietary Oodle binary. Copy the matching Oodle DLL from your own
-installation for local use; do not submit it to this repository.
+It supports complete custom packages, stock-family patch generations, editable DDS textures,
+native Wwise assets, package metadata preservation, and authenticated output verification.
 
 > [!IMPORTANT]
-> This project targets the offline, open-source Sunrise environment. Back up packages before
-> replacing them, and do not use the tool against services or content you are not authorized to
-> modify.
+> `repkg` is intended for the offline, open-source Sunrise environment. Keep a known-good backup of
+> every package you replace. A structurally valid package can still contain an asset that the game
+> does not know how to use.
 
-## Complete custom package
+## Features
+
+- Unpacks full packages and patch generations into `package.json` plus an `assets` directory.
+- Flattens inherited patch blocks so extracted projects rebuild without the original package chain.
+- Builds complete packages directly from manifest data instead of copying stock package bytes.
+- Builds the next patch generation from a stock-family predecessor.
+- Replaces complete entries or localized strings in patch packages.
+- Converts verified Tiger texture pairs to editable DDS files and rebuilds both package entries.
+- Preserves entry metadata, named tags, wide hashes, tag pairs, package identity, header profile,
+  and primary/alternate block-key mode.
+- Encrypts, compresses, authenticates, and verifies generated package blocks.
+- Runs as native Windows x64 executables and is also compatible with Wine.
+
+## Requirements
+
+- 64-bit Windows, or Wine on Linux.
+- `repkg.exe` and `depkg.exe` from the same build.
+- The matching `oo2core_3_win64.dll` from your own installation, placed beside both executables.
+- An offline Sunrise client with custom-package trust support when testing modified packages.
+
+The Oodle DLL is proprietary and is not distributed by this repository. Do not commit or
+redistribute it here.
+
+Your working directory should look like this:
+
+```text
+repkg-toolkit/
+  repkg.exe
+  depkg.exe
+  oo2core_3_win64.dll
+```
+
+## Quick start: unpack, edit, and rebuild
+
+### 1. Unpack a package
+
+Close the game, open a terminal beside the tools, and run:
+
+```text
+depkg.exe "C:\Games\Sunrise\packages\w64_ui_bootflow_unp1_0.pkg"
+```
+
+`depkg` creates a project named after the input package in the current directory:
+
+```text
+w64_ui_bootflow_unp1_0/
+  package.json
+  assets/
+    0000.bin
+    0001.wem
+    texture_80A14580.dds
+    ...
+```
+
+Choose a different project directory by passing a second path:
+
+```text
+depkg.exe "C:\path\to\package.pkg" "C:\mods\my-package-project"
+```
+
+If the destination already exists, `depkg` refuses to overwrite it. Add `--force` only when you
+intend to delete and recreate that extracted project:
+
+```text
+depkg.exe "C:\path\to\package.pkg" "C:\mods\my-package-project" --force
+```
+
+### 2. Edit assets
+
+Edit files inside the project's `assets` directory without renaming them. Start with one small
+change at a time.
+
+| Extension | Resource | Editing notes |
+| --- | --- | --- |
+| `.dds` | Texture | Use a DDS-aware editor. Keeping the original dimensions, DXGI format, and mip count is safest. |
+| `.wem` | Wwise audio | Convert externally for editing, then convert back to WEM before rebuilding. |
+| `.bnk` | Wwise bank | Use Wwise-aware tools; arbitrary binary edits are unsafe. |
+| `.otf` | OpenType font | Replace only with a valid font compatible with the consuming UI. |
+| `.dxbc` | DirectX shader | Requires shader-specific tools and compatible compiled bytecode. |
+| `.bin` | Unidentified/raw resource | Preserved losslessly, but no editable codec has been verified yet. |
+
+Do not casually change package IDs, entry order, tag hashes, class references, `block_key`, or
+header-profile values in `package.json`. Those fields describe relationships expected by the game.
+
+### 3. Rebuild the project
+
+Pass the generated manifest to `repkg`:
+
+```text
+repkg.exe "w64_ui_bootflow_unp1_0\package.json"
+```
+
+The rebuilt package is written beside `package.json` using the manifest's exact `name`:
+
+```text
+w64_ui_bootflow_unp1_0/
+  package.json
+  w64_ui_bootflow_unp1_0.pkg
+  assets/
+```
+
+If that output already exists, use `--force` to replace it:
+
+```text
+repkg.exe "w64_ui_bootflow_unp1_0\package.json" --force
+```
+
+`repkg` authenticates and decodes its output before reporting success. Do not use `--no-verify`
+for normal builds; it exists only for format diagnostics.
+
+### 4. Install and test
+
+1. Close the game.
+2. Back up the original package outside the active `packages` directory.
+3. Copy the rebuilt package into the game directory using the exact expected filename.
+4. Start Sunrise and test the specific screen, activity, sound, or resource you changed.
+5. Restore the original immediately if the game reports a content error, freezes, or renders the
+   affected content incorrectly.
+
+## Patch-generation extraction
+
+A patch package may inherit blocks from earlier files in the same family. When unpacking a package
+such as `w64_ui_01a3_6.pkg`, keep every required predecessor (`_0` through `_5`) beside it.
+
+`depkg` resolves those inherited blocks and writes a self-contained project with `"patch": false`.
+Rebuilding that extracted project therefore does not require the original package files and does
+not copy bytes from them.
+
+It is normal for an extracted project to contain fewer asset files than package entries. One
+editable DDS file represents a paired Tiger texture-header entry and texture-data entry; `repkg`
+reconstructs both during the build.
+
+## Authoring a complete custom package
+
+A manifest with `"patch": false` creates a complete package from the listed assets and metadata.
+It does not need `game_dir` or a stock base package.
 
 ```json
 {
@@ -42,25 +174,35 @@ installation for local use; do not submit it to this repository.
 }
 ```
 
+Build it with:
+
 ```text
 repkg.exe package.json
 ```
 
-`name` supplies the package id and generation. The command writes `w64_sunrise_0aa0_0.pkg` beside
-`package.json`. The package is built from the manifest payloads; it does not read or clone a stock
-package. An optional `profile` package may override the built-in header constants for another
-compatible client build, but it is not needed for Sunrise's supported build. An optional output
-argument may write the package elsewhere, but its filename must still match `name`.
+The output filename is derived from `name` and must match it. An optional second command-line
+argument can select another output path, but the filename itself must remain unchanged:
 
-`block_key` may be `primary` (the default) or `alternate`. `depkg` records the verified mode from
-the source package. The early unpatchable UI packages use the alternate key and must retain that
-mode when rebuilt.
+```text
+repkg.exe package.json "C:\mods\w64_sunrise_0aa0_0.pkg"
+```
 
-A few stock package names do not contain their header package ID. Projects produced by `depkg`
-include an explicit `package_id` for those names; `repkg` accepts it and verifies it against `name`
-whenever the name already contains an ID.
+Names normally encode the package ID and generation as
+`w64_<family>_<4-hex-package-id>_<generation>`. Package IDs must be in `0x0100` through `0x19FF`,
+and generations must be in `0` through `255`. Choose an unused identity for a genuinely new custom
+package.
 
-## Stock-family patch
+`block_key` may be `primary` (the default) or `alternate`. Projects created by `depkg` record the
+verified mode automatically. Early unpatchable UI packages use the alternate key and must retain
+it when rebuilt.
+
+See [`examples/package.json`](examples/package.json) for a complete minimal project.
+
+## Authoring a stock-family patch
+
+A manifest with `"patch": true` creates the next generation of an existing package family. It
+needs the immediately preceding package because the new generation republishes the complete
+current entry/block directory while storing only newly replaced physical blocks.
 
 ```json
 {
@@ -72,89 +214,81 @@ whenever the name already contains an ID.
       "type": "localized_text",
       "container_tag": "0x80B46A5A",
       "string_hash": "0xBD97E2B5",
-      "text": "LONG TEXT WORKS - WOOOOHOOOOO"
+      "text": "CUSTOM TEXT"
     }
   ]
 }
 ```
 
+Build it with:
+
 ```text
 repkg.exe patch.json
 ```
 
-The target `name` determines both filenames. For `w64_ui_01a3_7`, repkg requires
-`<game_dir>/packages/w64_ui_01a3_6.pkg` and writes
-`<game_dir>/packages/w64_ui_01a3_7.pkg`. If the predecessor does not exist, the command stops with
-its exact expected path. An optional output argument may stage the result elsewhere, but its
-filename must still be `w64_ui_01a3_7.pkg`.
-
-A stock override reads the predecessor because every patch republishes the complete current
-entry/block directory while storing only its new physical blocks.
-
-Both build commands authenticate and decode their output before succeeding. Use `--no-verify` only
-for diagnostics. Existing output files are refused unless `--force` is supplied.
-
-## Unpack and rebuild
+For this example, `repkg` requires:
 
 ```text
-depkg.exe C:\Games\Sunrise\packages\w64_ui_01a3_7.pkg
-repkg.exe w64_ui_01a3_7\package.json
+C:\Games\Sunrise\packages\w64_ui_01a3_6.pkg
 ```
 
-By default, `depkg` creates a directory named after the package in the current directory. A second
-argument selects another output directory, and `--force` replaces an existing output directory:
+and writes `w64_ui_01a3_7.pkg`. If the predecessor does not exist or its internal identity does
+not match the requested family, the build stops with an error.
+
+Pass an explicit output path if you want to stage the package outside the game directory first.
+The output filename must still match `name`:
 
 ```text
-depkg.exe PACKAGE OUTPUT_DIRECTORY --force
+repkg.exe patch.json "C:\mods\w64_ui_01a3_7.pkg"
 ```
 
-The generated project contains:
+Patch manifests support two replacement types:
+
+- `localized_text` replaces one string selected by its localized container TagHash and string hash.
+- `entry` replaces an entire package entry selected by `tag` or `entry_index` with bytes from
+  `path`.
+
+See [`examples/patch.json`](examples/patch.json) for a localized-text example.
+
+## Command reference
+
+### depkg
 
 ```text
-w64_ui_01a3_7/
-  package.json
-  assets/
-    0000.bin
-    0001.wem
-    texture_80A14580.dds
-    ...
+depkg.exe PACKAGE [OUTPUT_DIRECTORY] [--force]
 ```
 
-`package.json` preserves the package ID and generation, every entry's class/reference and type
-metadata, named tags, wide hashes, tag-pair metadata, and the source header profile. Tag pairs are
-emitted as raw `first_tag`/`second_tag` TagHash values because either side may refer to another
-package. Recognized resources are written in their verified native or editable formats:
+### repkg build
 
-- Wwise audio streams remain native compressed `.wem` files. Convert them externally when editing,
-  then convert the result back to WEM before running `repkg`.
-- Verified paired Tiger texture header/data entries become editable `.dds` files. `repkg` rebuilds
-  both entries from the DDS dimensions, DXGI format, and pixel payload.
-- Wwise banks remain `.bnk`, DirectX shader containers remain `.dxbc`, and already-standard file
-  formats retain their normal extension.
-- Unknown resource classes remain `.bin` until a verified bidirectional codec is implemented.
+The manifest's `patch` field chooses complete-package or patch-generation behavior:
 
-When the input is a patch generation, `depkg` resolves inherited blocks from `_0` through the
-selected generation using sibling package files. It then emits a self-contained full-package
-manifest (`"patch": false`) with every current entry materialized. Rebuilding therefore does not
-need the original package chain and does not copy any stock package bytes.
+```text
+repkg.exe MANIFEST [OUTPUT] [--force] [--no-verify]
+```
 
-The unpacker currently emits rebuild projects for the verified `d2_prebl` version-38 package
-variant used by Sunrise. It rejects the older beta metadata layout instead of silently rebuilding
-it as a different format. Like `repkg`, `depkg` needs only the matching `oo2core_3_win64.dll`
-beside the executable; it does not need a game executable, helper program, or key-cache file.
-
-## Other commands
+### Inspection and verification
 
 ```text
 repkg.exe inspect PACKAGE [--verify-blocks] [--list-entries] [--list-lookups]
-repkg.exe extract PACKAGES TAG OUTPUT
-repkg.exe replace-localized-string CONTAINER ENGLISH HASH TEXT OUTPUT
 repkg.exe verify-directory PACKAGES [--stock-only] [--verify-blocks]
 ```
 
-## Building
+`--verify-blocks` reads, authenticates, decrypts, and decompresses every physical package block.
 
-On Windows with Visual Studio 2022 and its C++ workload:
+### Focused extraction and localized-text utilities
+
+```text
+repkg.exe extract PACKAGES TAG OUTPUT
+repkg.exe replace-localized-string CONTAINER ENGLISH HASH TEXT OUTPUT
+```
+
+Run either executable with `--help` for its built-in usage summary.
+
+## Building from source
+
+### Windows
+
+Install Visual Studio 2022 with the Desktop development with C++ workload, then run:
 
 ```text
 cmake -S . -B build -A x64
@@ -163,9 +297,10 @@ cmake --build build --config Release
 
 The executables are written to `build\Release`.
 
-On Linux, install CMake, Ninja, `clang-cl`, the LLVM tools, and
-[xwin](https://github.com/Jake-Shadle/xwin). Prepare a local Windows SDK/CRT and build with the
-included cross-toolchain:
+### Linux cross-build
+
+Install CMake, Ninja, `clang-cl`, the LLVM tools, and
+[`xwin`](https://github.com/Jake-Shadle/xwin). Prepare the Windows SDK/CRT and build:
 
 ```text
 xwin --accept-license splat --output .xwin-cache
@@ -175,10 +310,43 @@ cmake -S . -B build -G Ninja \
 cmake --build build
 ```
 
-Then copy your matching `oo2core_3_win64.dll` beside `repkg.exe` and `depkg.exe` before running
-either program.
+Copy your matching `oo2core_3_win64.dll` beside the resulting executables before running them.
+
+## Troubleshooting
+
+### `oo2core_3_win64.dll must be beside the executable`
+
+Copy the matching DLL from your own installation into the same directory as `repkg.exe` and
+`depkg.exe`.
+
+### `output already exists`
+
+The tools avoid accidental overwrites. Add `--force` only after confirming the existing output can
+be replaced.
+
+### An earlier patch generation cannot be found
+
+Place the required sibling generations together in the source package directory. Patch extraction
+must be able to follow inherited block ownership back through the family.
+
+### The rebuilt package has a different size or checksum
+
+That is expected. Recompression and block layout can produce different bytes while preserving the
+same decoded resources. Use `inspect --verify-blocks` to check container integrity.
+
+### The package verifies but the game freezes or displays broken content
+
+Container verification proves the package tables, encryption, compression, and hashes are
+internally readable. It cannot prove that an edited texture, sound, shader, font, or binary object
+matches every semantic requirement of the game. Restore the backup and retry with a smaller edit
+that preserves the original asset format.
+
+### The game reports a content-integrity error
+
+Confirm that you are using the offline Sunrise client with custom-package trust support and that
+the package name, internal ID, generation, header profile, and block-key mode were preserved.
 
 ## License
 
-`repkg` is distributed under the GNU General Public License v3.0. The Oodle runtime is not part of
-this project and is not distributed under that license.
+`repkg` is distributed under the [GNU General Public License v3.0](LICENSE). The Oodle runtime is
+not part of this project and is not distributed under that license.
