@@ -1,0 +1,13 @@
+{
+  "patch": true,
+  "game_dir": "C:/Games/Sunrise",
+  "name": "w64_ui_01a3_7",
+  "replacements": [
+    {
+      "type": "localized_text",
+      "container_tag": "0x80B46A5A",
+      "string_hash": "0xBD97E2B5",
+      "text": "LONG TEXT WORKS - WOOOOHOOOOO"
+    }
+  ]
+}

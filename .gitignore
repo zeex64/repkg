@@ -1,0 +1,17 @@
+/build/
+/.xwin-cache
+/.vs/
+/out/
+
+*.pkg
+*.pdb
+*.ilk
+*.user
+*.suo
+
+# Proprietary runtime supplied by the user from their own installation.
+oo2core_3_win64.dll
+
+# Extracted projects and local release bundles can be very large.
+/*_project/
+/release/

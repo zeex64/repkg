@@ -1,0 +1,25 @@
+{
+  "patch": false,
+  "name": "w64_sunrise_0aa0_0",
+  "entries": [
+    {
+      "reference": "0x80809C36",
+      "type_info": "0x0000100A",
+      "path": "custom-entry.bin"
+    }
+  ],
+  "named_tags": [
+    {
+      "entry_index": 0,
+      "class_id": "0x80809C36",
+      "name": "sunrise:example"
+    }
+  ],
+  "wide_hashes": [
+    {
+      "wide_hash": "0x0123456789ABCDEF",
+      "entry_index": 0,
+      "class_id": "0x80809C36"
+    }
+  ]
+}
