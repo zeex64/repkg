@@ -14,6 +14,7 @@
 
 #include "package.h"
 #include "texture.h"
+#include "ui.h"
 
 namespace repkg {
 namespace fs = std::filesystem;
@@ -127,6 +128,32 @@ struct TextureResource {
     TextureDescriptor descriptor;
 };
 
+struct UiResource {
+    std::string id;
+    std::string path;
+    ui::Layout layout;
+};
+
+struct UiWidgetResource {
+    std::string id;
+    std::string path;
+    ui::WidgetTable table;
+};
+
+[[nodiscard]] std::string safe_component(std::string_view input) {
+    std::string output;
+    output.reserve(input.size());
+    for (const unsigned char value : input) {
+        if ((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
+            || (value >= '0' && value <= '9') || value == '_' || value == '-') {
+            output.push_back(static_cast<char>(value));
+        } else {
+            output.push_back('_');
+        }
+    }
+    return output.empty() ? "unnamed" : output;
+}
+
 [[nodiscard]] bool has_flag(const std::vector<std::wstring>& arguments,
                             std::wstring_view flag) {
     return std::find(arguments.begin(), arguments.end(), flag) != arguments.end();
@@ -227,6 +254,88 @@ void unpack(const fs::path& input, const fs::path& destination, bool force) {
         textureHeaderRole[headerIndex] = true;
     }
 
+    std::vector<UiResource> uiResources;
+    std::vector<int> uiForEntry(package.entries.size(), -1);
+    std::vector<std::string> uiRole(package.entries.size());
+    for (const NamedTag& named : package.namedTags) {
+        if (named.classId != ui::kScreenClass || named.entryIndex >= package.entries.size()
+            || textureForEntry[named.entryIndex] != -1
+            || uiForEntry[named.entryIndex] != -1
+            || package.entries[named.entryIndex].reference != ui::kScreenClass) {
+            continue;
+        }
+        ui::Layout layout;
+        layout.screenName = named.name;
+        layout.screenEntry = named.entryIndex;
+        layout.screenTag = tag_for(package.header.packageId, named.entryIndex);
+        layout.screenTemplate = runtime.read_tag(chain.path(), layout.screenTag);
+        std::vector<ui::ScreenReference> references;
+        if (!ui::parse_screen(layout.screenTemplate, references,
+                              layout.localizedStrings)) continue;
+        bool valid = true;
+        std::vector<std::uint32_t> claimed;
+        claimed.push_back(named.entryIndex);
+        for (const ui::ScreenReference& reference : references) {
+            if (tag_package(reference.hierarchyTag) != package.header.packageId) {
+                valid = false;
+                break;
+            }
+            const std::uint32_t hierarchyIndex = tag_entry(reference.hierarchyTag);
+            if (hierarchyIndex >= package.entries.size()
+                || package.entries[hierarchyIndex].reference != ui::kHierarchyClass
+                || textureForEntry[hierarchyIndex] != -1
+                || uiForEntry[hierarchyIndex] != -1
+                || std::find(claimed.begin(), claimed.end(), hierarchyIndex) != claimed.end()) {
+                valid = false;
+                break;
+            }
+            ui::Hierarchy hierarchy;
+            hierarchy.tag = reference.hierarchyTag;
+            hierarchy.entryIndex = hierarchyIndex;
+            const std::vector<std::byte> bytes = runtime.read_tag(chain.path(), reference.hierarchyTag);
+            if (!ui::parse_hierarchy(bytes, hierarchy)) {
+                valid = false;
+                break;
+            }
+            claimed.push_back(hierarchyIndex);
+            layout.views.push_back(ui::View{reference.nameHash,
+                                            ui::known_view_name(reference.nameHash),
+                                            std::move(hierarchy)});
+        }
+        if (!valid) continue;
+        const std::string component = safe_component(named.name);
+        const std::string id = "ui_" + component;
+        const std::string path = "assets/ui/screens/" + component + "/layout.json";
+        ui::write_layout(temporary / fs::path(path), layout);
+        const int resourceIndex = static_cast<int>(uiResources.size());
+        uiResources.push_back(UiResource{id, path, std::move(layout)});
+        uiForEntry[named.entryIndex] = resourceIndex;
+        uiRole[named.entryIndex] = "screen";
+        for (const ui::View& view : uiResources.back().layout.views) {
+            uiForEntry[view.hierarchy.entryIndex] = resourceIndex;
+            uiRole[view.hierarchy.entryIndex] = "hierarchy:"
+                + hex(view.hierarchy.tag, 8);
+        }
+    }
+
+    std::vector<UiWidgetResource> uiWidgetResources;
+    std::vector<int> uiWidgetForEntry(package.entries.size(), -1);
+    for (std::size_t index = 0; index < package.entries.size(); ++index) {
+        if (package.entries[index].reference != ui::kWidgetTableClass
+            || textureForEntry[index] != -1 || uiForEntry[index] != -1) continue;
+        ui::WidgetTable table;
+        table.entryIndex = static_cast<std::uint32_t>(index);
+        table.tag = tag_for(package.header.packageId, table.entryIndex);
+        const std::vector<std::byte> bytes = runtime.read_tag(chain.path(), table.tag);
+        if (!ui::parse_widget_table(bytes, table)) continue;
+        const std::string tagText = hex(table.tag, 8).substr(2);
+        const std::string id = "ui_widget_table_" + tagText;
+        const std::string path = "assets/ui/widget_tables/" + tagText + ".json";
+        ui::write_widget_table(temporary / fs::path(path), table);
+        uiWidgetForEntry[index] = static_cast<int>(uiWidgetResources.size());
+        uiWidgetResources.push_back(UiWidgetResource{id, path, std::move(table)});
+    }
+
     bool hasPrimaryKeyBlocks = false;
     bool hasAlternateKeyBlocks = false;
     for (const Block& block : package.blocks) {
@@ -256,7 +365,9 @@ void unpack(const fs::path& input, const fs::path& destination, bool force) {
     for (std::size_t index = 0; index < package.entries.size(); ++index) {
         const Entry& entry = package.entries[index];
         std::vector<std::byte> data;
-        if (textureForEntry[index] == -1 && entry.logical_size() != 0) {
+        if (textureForEntry[index] == -1 && uiForEntry[index] == -1
+            && uiWidgetForEntry[index] == -1
+            && entry.logical_size() != 0) {
             std::uint32_t classId = 0;
             data = runtime.read_tag(chain.path(),
                                     tag_for(package.header.packageId,
@@ -275,6 +386,14 @@ void unpack(const fs::path& input, const fs::path& destination, bool force) {
             manifest << "      \"resource\": \"" << texture.id << "\",\n"
                      << "      \"role\": \""
                      << (textureHeaderRole[index] ? "header" : "data") << "\"\n";
+        } else if (uiForEntry[index] != -1) {
+            const UiResource& resource = uiResources[uiForEntry[index]];
+            manifest << "      \"resource\": \"" << resource.id << "\",\n"
+                     << "      \"role\": \"" << uiRole[index] << "\"\n";
+        } else if (uiWidgetForEntry[index] != -1) {
+            const UiWidgetResource& resource = uiWidgetResources[uiWidgetForEntry[index]];
+            manifest << "      \"resource\": \"" << resource.id << "\",\n"
+                     << "      \"role\": \"widget_table\"\n";
         } else {
             const std::string filename = asset_name(index, data);
             write_binary(temporary / L"assets" / fs::path(filename), data);
@@ -289,9 +408,10 @@ void unpack(const fs::path& input, const fs::path& destination, bool force) {
     }
     std::cerr << "\n";
     manifest << "  ],\n  \"resources\": [";
+    bool wroteResource = false;
     for (std::size_t index = 0; index < textures.size(); ++index) {
         const TextureResource& texture = textures[index];
-        manifest << (index == 0 ? "\n" : ",\n")
+        manifest << (wroteResource ? ",\n" : "\n")
                  << "    {\n"
                  << "      \"id\": \"" << texture.id << "\",\n"
                  << "      \"type\": \"texture\",\n"
@@ -310,8 +430,27 @@ void unpack(const fs::path& input, const fs::path& destination, bool force) {
                  << "      \"large_buffer\": \""
                  << hex(texture.descriptor.largeBuffer, 8) << "\"\n"
                  << "    }";
+        wroteResource = true;
     }
-    manifest << (textures.empty() ? "" : "\n  ") << "],\n  \"named_tags\": [";
+    for (const UiResource& resource : uiResources) {
+        manifest << (wroteResource ? ",\n" : "\n")
+                 << "    {\n"
+                 << "      \"id\": \"" << resource.id << "\",\n"
+                 << "      \"type\": \"ui_layout\",\n"
+                 << "      \"path\": \"" << resource.path << "\"\n"
+                 << "    }";
+        wroteResource = true;
+    }
+    for (const UiWidgetResource& resource : uiWidgetResources) {
+        manifest << (wroteResource ? ",\n" : "\n")
+                 << "    {\n"
+                 << "      \"id\": \"" << resource.id << "\",\n"
+                 << "      \"type\": \"ui_widget_table\",\n"
+                 << "      \"path\": \"" << resource.path << "\"\n"
+                 << "    }";
+        wroteResource = true;
+    }
+    manifest << (wroteResource ? "\n  " : "") << "],\n  \"named_tags\": [";
     for (std::size_t index = 0; index < package.namedTags.size(); ++index) {
         const NamedTag& row = package.namedTags[index];
         manifest << (index == 0 ? "\n" : ",\n")

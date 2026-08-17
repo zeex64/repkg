@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>repkg UI Editor</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>repkg UI Editor</h1>
+      <p id="project-label">Open a depkg project to begin</p>
+    </div>
+    <div class="header-actions">
+      <button id="open-project" class="primary">Open project</button>
+      <button id="add-widget-project" disabled>Add widget project</button>
+      <button id="reload-project" disabled>Reload</button>
+      <button id="save-all" disabled>Save changes</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="panel navigation-panel">
+      <section>
+        <label for="screen-select">Screen</label>
+        <select id="screen-select" disabled></select>
+      </section>
+      <section>
+        <label for="view-filter">Views</label>
+        <input id="view-filter" type="search" placeholder="Filter views" disabled>
+        <div id="view-list" class="selection-list empty">No project open</div>
+      </section>
+      <section class="legend">
+        <h2>Graph</h2>
+        <p><span class="dot selected-dot"></span>Selected node</p>
+        <p><span class="dot root-dot"></span>Root node</p>
+        <p class="muted">Drag to pan. Scroll to zoom. The graph shows verified hierarchy, not a pixel-perfect game render yet.</p>
+      </section>
+    </aside>
+
+    <section class="canvas-panel">
+      <div class="canvas-toolbar">
+        <div>
+          <strong id="view-title">No view selected</strong>
+          <span id="view-summary"></span>
+        </div>
+        <div>
+          <input id="node-search" type="search" placeholder="Find node number" disabled>
+          <button id="fit-graph" disabled>Fit</button>
+        </div>
+      </div>
+      <div id="graph-viewport" class="graph-viewport">
+        <svg id="graph" aria-label="UI hierarchy graph">
+          <g id="graph-world"></g>
+        </svg>
+        <div id="empty-state" class="empty-state">
+          <h2>Visual UI hierarchy editor</h2>
+          <p>Open the folder produced by depkg. If its widget tags live in another package, use Add widget project too.</p>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel inspector-panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="node">Node</button>
+        <button class="tab" data-tab="widgets">Widget data</button>
+        <button class="tab" data-tab="raw">Details</button>
+      </div>
+
+      <section id="tab-node" class="tab-content active">
+        <div id="node-inspector" class="empty">Select a graph node</div>
+      </section>
+
+      <section id="tab-widgets" class="tab-content">
+        <div id="widget-missing" class="notice">Select a view to load its widget table.</div>
+        <div id="widget-editor" hidden>
+          <label for="array-select">Array</label>
+          <select id="array-select"></select>
+          <div id="array-summary" class="summary-card"></div>
+          <div class="item-picker">
+            <label for="item-index">Item</label>
+            <input id="item-index" type="number" min="0" value="0">
+            <span id="item-count"></span>
+          </div>
+          <div id="item-fields"></div>
+        </div>
+      </section>
+
+      <section id="tab-raw" class="tab-content">
+        <div id="raw-details" class="empty">Select a view</div>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span id="status">Ready</span>
+    <span id="dirty-state">No unsaved changes</span>
+  </footer>
+
+  <input id="folder-fallback" type="file" webkitdirectory multiple hidden>
+  <script src="app.js"></script>
+</body>
+</html>

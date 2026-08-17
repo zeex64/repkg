@@ -19,6 +19,7 @@
 #include "localized.h"
 #include "package.h"
 #include "texture.h"
+#include "ui.h"
 
 namespace repkg {
 namespace fs = std::filesystem;
@@ -371,6 +372,32 @@ int command_build(const std::vector<std::wstring>& arguments) {
                 throw Error("resource ids must be nonempty and unique");
             }
             const std::string type = row.require("type").string("resource type");
+            if (type == "ui_layout") {
+                const auto compiled = ui::compile_layout(
+                    resolve_path(directory, row.require("path"), "UI layout path"),
+                    packageName.packageId, rawEntries.size());
+                for (auto& entry : compiled) {
+                    if (entry.entryIndex >= rawEntries.size()
+                        || compiledEntries.contains(entry.entryIndex)) {
+                        throw Error("UI layout resource entry mapping is invalid or duplicated");
+                    }
+                    compiledEntries.emplace(entry.entryIndex,
+                        CompiledEntry{id, std::move(entry.role), std::move(entry.data)});
+                }
+                continue;
+            }
+            if (type == "ui_widget_table") {
+                ui::CompiledEntry entry = ui::compile_widget_table(
+                    resolve_path(directory, row.require("path"), "UI widget-table path"),
+                    packageName.packageId, rawEntries.size());
+                if (entry.entryIndex >= rawEntries.size()
+                    || compiledEntries.contains(entry.entryIndex)) {
+                    throw Error("UI widget-table entry mapping is invalid or duplicated");
+                }
+                compiledEntries.emplace(entry.entryIndex,
+                    CompiledEntry{id, std::move(entry.role), std::move(entry.data)});
+                continue;
+            }
             if (type != "texture") {
                 throw Error("unsupported editable resource type '" + type + "'");
             }

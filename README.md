@@ -9,7 +9,8 @@ The project provides two command-line programs:
 - **`repkg.exe`** compiles an editable project or authored manifest back into a `.pkg` file.
 
 It supports complete custom packages, stock-family patch generations, editable DDS textures,
-native Wwise assets, package metadata preservation, and authenticated output verification.
+decoded UI screen hierarchies, native Wwise assets, package metadata preservation, and
+authenticated output verification.
 
 > [!IMPORTANT]
 > `repkg` is intended for the offline, open-source Sunrise environment. Keep a known-good backup of
@@ -24,6 +25,9 @@ native Wwise assets, package metadata preservation, and authenticated output ver
 - Builds the next patch generation from a stock-family predecessor.
 - Replaces complete entries or localized strings in patch packages.
 - Converts verified Tiger texture pairs to editable DDS files and rebuilds both package entries.
+- Converts verified named UI screens and their hierarchy tags into rebuildable `layout.json` files.
+- Decodes UI widget tables, nested object/component/property arrays, and float value pools into
+  rebuildable JSON.
 - Preserves entry metadata, named tags, wide hashes, tag pairs, package identity, header profile,
   and primary/alternate block-key mode.
 - Encrypts, compresses, authenticates, and verifies generated package blocks.
@@ -67,6 +71,7 @@ w64_ui_bootflow_unp1_0/
     0000.bin
     0001.wem
     texture_80A14580.dds
+    ui/screens/ui_orbit/layout.json
     ...
 ```
 
@@ -95,6 +100,8 @@ change at a time.
 | `.bnk` | Wwise bank | Use Wwise-aware tools; arbitrary binary edits are unsafe. |
 | `.otf` | OpenType font | Replace only with a valid font compatible with the consuming UI. |
 | `.dxbc` | DirectX shader | Requires shader-specific tools and compatible compiled bytecode. |
+| `layout.json` | Named UI screen and view hierarchies | Edit view hashes, hierarchy links, widget-table references, node counts, and parent/child edges. |
+| `widget_tables/*.json` | UI objects, components, properties, animations, and values | Edit fixed records through hexadecimal words or readable float32 values. |
 | `.bin` | Unidentified/raw resource | Preserved losslessly, but no editable codec has been verified yet. |
 
 Do not casually change package IDs, entry order, tag hashes, class references, `block_key`, or
@@ -147,6 +154,67 @@ not copy bytes from them.
 It is normal for an extracted project to contain fewer asset files than package entries. One
 editable DDS file represents a paired Tiger texture-header entry and texture-data entry; `repkg`
 reconstructs both during the build.
+
+## UI layout projects
+
+When `depkg` finds a verified named UI screen (`0x808047B7`), it combines that screen and all of
+its in-package hierarchy tags (`0x8080496A`) into one file:
+
+```text
+assets/ui/screens/<screen-name>/layout.json
+```
+
+The `views` array contains the screen's individual states. Each view records its name hash,
+hierarchy tag, referenced external widget table, node count, and editable parent/child edges. A
+`null` parent is the hierarchy's root sentinel. Known view hashes receive readable names; unknown
+hashes remain losslessly identified as `view_<hash>`.
+
+`template_hex` and `header_hex` retain bytes whose meanings have not yet been verified. They are
+part of the JSON representation, not separate `.bin` assets, and make an unchanged
+decode/rebuild byte-exact. Do not hand-edit those fields unless you are intentionally working on
+the binary format. `repkg` validates the rebuilt graph and rejects malformed tag mappings.
+
+The `widget_table_tag` may point into another package. It remains an explicit reference in the
+screen layout; unpack the referenced package separately to edit the corresponding table under:
+
+```text
+assets/ui/widget_tables/<tag>.json
+```
+
+Widget-table JSON recursively discovers verified Tiger array headers and exposes their fixed-size
+items. Recognized relationships are labeled `objects`, `overlays`, `components`, `animations`,
+`properties`, and `elements`. Other arrays retain an offset-based name and their exact item class.
+Integer and reference fields are represented as `words_le`. Verified float and vector value pools
+provide both exact `bits` and a readable `value`; changing either one recompiles the float, while
+inconsistent simultaneous edits are rejected.
+
+The current codec intentionally keeps array counts, item classes, sizes, and offsets fixed. Those
+fields participate in Tiger's relocation layout and cannot be changed safely yet. Existing items
+can be edited and rebuilt, and every unmodified table round-trips exactly. Unrecognized tag classes
+continue to be emitted as `.bin` files until a rebuild-safe codec exists.
+
+## Visual UI editor
+
+The build includes a self-contained visual editor under `ui-editor`. Run
+`ui-editor/open-ui-editor.cmd` on Windows or `ui-editor/open-ui-editor.sh` on Linux. You can also
+open `ui-editor/index.html` directly in Chrome or Edge. No web server or internet connection is
+required.
+
+1. Select **Open project** and choose a folder produced by `depkg` that contains
+   `assets/ui/screens`.
+2. If the selected screen references widget tables in another package, select **Add widget
+   project** and choose that package's depkg project too. For example, `ui_orbit` screen data is in
+   the `01a3` project while its `0x80BC...` widget tables are in `01e3`.
+3. Choose a screen and view. Drag or zoom the hierarchy graph, select nodes, and edit their parent
+   relationship in the Node inspector.
+4. Open **Widget data** to browse object, component, animation, property, element, float, and vector
+   arrays. Value edits update their exact binary representation immediately.
+5. Select **Save changes**, then rebuild each changed project with `repkg.exe package.json`.
+
+The graph is a verified structural view of the game's UI hierarchy. It is not yet a pixel-perfect
+render of the in-game screen: connecting component bindings to their final rectangle, anchoring,
+material, and text semantics is the next reverse-engineering layer. The editor labels that boundary
+instead of presenting guessed coordinates as verified data.
 
 ## Authoring a complete custom package
 

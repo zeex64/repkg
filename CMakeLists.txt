@@ -20,6 +20,7 @@ set(REPKG_READER_SOURCES
 set(REPKG_PACKAGE_SOURCES
     src/package.cpp
     src/texture.cpp
+    src/ui.cpp
     src/middleware/compression/oodle/oodle_installed.cpp
     src/middleware/compression/oodle/oodle_runtime.cpp
     src/middleware/crypto/aes_gcm_decrypt.cpp
@@ -35,6 +36,7 @@ add_executable(repkg
 
 add_executable(depkg
     src/depkg.cpp
+    src/json.cpp
     ${REPKG_PACKAGE_SOURCES}
 )
 
@@ -62,3 +64,15 @@ foreach(REPKG_TARGET IN ITEMS repkg depkg)
                 "$<TARGET_FILE_DIR:${REPKG_TARGET}>/LICENSE"
     )
 endforeach()
+
+add_custom_target(repkg_ui_editor ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/editor"
+            "$<TARGET_FILE_DIR:repkg>/ui-editor"
+    DEPENDS
+        editor/index.html
+        editor/app.css
+        editor/app.js
+        editor/open-ui-editor.cmd
+        editor/open-ui-editor.sh
+)
